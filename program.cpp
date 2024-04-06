@@ -32,7 +32,7 @@ vector<int> tr_light;
 vector<int> no_cars;
 vector<string> tstamp;
 int m = 0; // Number of rows
-int hour_ind = 12; // Number of rows representing 5 minutes (assuming 12 rows per 5 minutes)
+int minute_ind = 4; // Number of rows representing 5 minutes (assuming 4 rows per 5 minutes)
 
 // Function to sort traffic light data
 bool sort_method(struct tr_signal first, struct tr_signal second)
@@ -64,10 +64,13 @@ void process_traffic_data(int p_num_threads, int c_num_threads)
     // Initialize queue to store traffic light data
     queue<tr_signal> tr_sig_queue;
 
-    // Array to hold the totals of each of the 4 traffic lights
-    tr_signal tlSorter[4] = {{0, "", 1, 0}, {0, "", 2, 0}, {0, "", 3, 0}, {0, "", 4, 0}};
-
     condition_variable producer_cv, consumer_cv; // Initializing condition variables for prod and cons
+
+    // Array to hold the current status of each of the 4 traffic lights
+    tr_signal tlStatus[4] = {{0, "", 1, 0}, {0, "", 2, 0}, {0, "", 3, 0}, {0, "", 4, 0}};
+
+    // Start time
+    auto start = chrono::high_resolution_clock::now();
 
     // Producer function
     auto produce = [&]() {
@@ -95,26 +98,24 @@ void process_traffic_data(int p_num_threads, int c_num_threads)
             if (!tr_sig_queue.empty()) {
                 tr_signal sig = tr_sig_queue.front(); // Getting the front elements of the queue
 
-                // Add the number of cars into the respective traffic light id
-                if (sig.tr_id == 1) {
-                    tlSorter[0].num_cars += sig.num_cars;
-                } else if (sig.tr_id == 2) {
-                    tlSorter[1].num_cars += sig.num_cars;
-                } else if (sig.tr_id == 3) {
-                    tlSorter[2].num_cars += sig.num_cars;
-                } else if (sig.tr_id == 4) {
-                    tlSorter[3].num_cars += sig.num_cars;
+                // Check if 5 minutes have elapsed or if it's the last row
+                if ((con_count % minute_ind == 0 && con_count > 0) || con_count == m - 1) {
+                    // Sort the traffic lights according to the number of cars
+                    sort(tlStatus, tlStatus + 4, sort_method);
+                    print_sorted_traffic(tlStatus, sig.t_stamp);
+                }
+
+                // Update the current status of each traffic light
+                for (int i = 0; i < 4; ++i) {
+                    if (tlStatus[i].tr_id == sig.tr_id) {
+                        tlStatus[i] = sig;
+                        break;
+                    }
                 }
 
                 tr_sig_queue.pop(); // Pop the data
                 producer_cv.notify_all(); // Notify producer
                 con_count++;
-
-                if (last_timestamp != "" && sig.t_stamp != last_timestamp) {
-                    sort(tlSorter, tlSorter + 4, sort_method);
-                    print_sorted_traffic(tlSorter, sig.t_stamp);
-                }
-                last_timestamp = sig.t_stamp;
             } else {
                 consumer_cv.wait(lk, [&]{ return !tr_sig_queue.empty(); }); // If queue empty, wait until producer produces
             }
@@ -123,9 +124,6 @@ void process_traffic_data(int p_num_threads, int c_num_threads)
             sleep(rand()%3);
         }
     };
-
-    // Start time
-    auto start = chrono::high_resolution_clock::now();
 
     // Create producer threads
     vector<thread> producer_threads(p_num_threads);
